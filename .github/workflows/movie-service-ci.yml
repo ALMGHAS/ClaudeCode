@@ -10,6 +10,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  security-events: write
 
 env:
   WORKING_DIR: bookmyseat-movie-service
@@ -59,7 +60,7 @@ jobs:
           tags: |
             ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ vars.MOVIE_ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
 
-      # 🔐 Trivy scan – FAIL ONLY on CRITICAL vulnerabilities
+      # 🔐 Trivy scan – vulns + misconfigs + secrets on the built image
       - name: Trivy Container Scan
         uses: aquasecurity/trivy-action@master
         with:
@@ -67,11 +68,17 @@ jobs:
           scan-type: image
           format: sarif
           output: trivy-report.sarif
-          vuln-type: "library"
-          severity: "CRITICAL"
+          severity: "CRITICAL,HIGH"
           ignore-unfixed: true
           exit-code: "0"
-          trivy-args: "--scanners vuln --skip-version-check"
+          scanners: "vuln,misconfig,secret"
+
+      - name: Upload Trivy image SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-report.sarif
+          category: trivy-image
 
       - name: Convert SARIF to JSON & Enforce CRITICAL gate
         run: |
