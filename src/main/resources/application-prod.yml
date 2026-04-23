@@ -1,0 +1,23 @@
+# Production profile
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://movie-mysql:3306/movie_db}
+    username: ${SPRING_DATASOURCE_USERNAME:movieuser}
+    password: ${SPRING_DATASOURCE_PASSWORD:moviepass}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+  jpa:
+    show-sql: false
+
+logging:
+  level:
+    com.bookmyseat.movieservice: INFO
+    root: WARN
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n"
+
+management:
+  tracing:
+    sampling:
+      probability: 0.1 # Lower sampling rate for production

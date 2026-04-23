@@ -1,0 +1,15 @@
+# Development profile - uses local MySQL
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/movie_db}
+    username: ${SPRING_DATASOURCE_USERNAME:movieuser}
+    password: ${SPRING_DATASOURCE_PASSWORD:moviepass}
+  jpa:
+    show-sql: true
+
+logging:
+  level:
+    com.bookmyseat.movieservice: DEBUG
+    org.springframework.web: DEBUG
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n"

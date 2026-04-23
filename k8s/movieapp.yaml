@@ -1,0 +1,202 @@
+# ========================
+# Namespace
+# ========================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: movie
+---
+# ========================
+# StorageClass (Immediate Binding)
+# ========================
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp2-immediate
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp2
+volumeBindingMode: Immediate
+reclaimPolicy: Delete
+---
+# ========================
+# MySQL Database (movie-db)
+# ========================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: movie-db-pvc
+  namespace: movie
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp2-immediate
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: movie-init-scripts
+  namespace: movie
+data:
+  V1__Create_movies_and_showtimes_tables.sql: |
+    -- Create movies table
+    CREATE TABLE movies (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        duration_minutes INT NOT NULL,
+        genre VARCHAR(100),
+        language VARCHAR(50),
+        release_date DATE,
+        created_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+        INDEX idx_genre (genre),
+        INDEX idx_language (language)
+    );
+
+    -- Create showtimes table
+    CREATE TABLE showtimes (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        movie_id BIGINT NOT NULL,
+        show_date_time DATETIME NOT NULL,
+        theater VARCHAR(100) NOT NULL,
+        available_seats INT NOT NULL,
+        created_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+        FOREIGN KEY (movie_id) REFERENCES movies(id) ON DELETE CASCADE,
+        INDEX idx_movie_id (movie_id),
+        INDEX idx_show_date_time (show_date_time),
+        INDEX idx_theater (theater)
+    );
+  V2__Insert_sample_data.sql: |
+    -- Insert sample movies and showtimes from the migration script
+    INSERT INTO movies (title, description, duration_minutes, genre, language, release_date) VALUES
+    ('Inception', 'A mind-bending thriller about dreams within dreams', 148, 'Sci-Fi', 'English', '2010-07-16'),
+    ('The Dark Knight', 'Batman faces the Joker in this epic superhero film', 152, 'Action', 'English', '2008-07-18'),
+    ('Interstellar', 'A team of explorers travel through a wormhole in space', 169, 'Sci-Fi', 'English', '2014-11-07'),
+    ('The Godfather', 'The aging patriarch of an organized crime dynasty transfers control', 175, 'Drama', 'English', '1972-03-24'),
+    ('Pulp Fiction', 'The lives of two mob hitmen, a boxer, and others intertwine', 154, 'Crime', 'English', '1994-10-14'),
+    ('Dangal', 'A biographical sports drama about wrestler Mahavir Singh Phogat', 161, 'Biography', 'Hindi', '2016-12-23'),
+    ('3 Idiots', 'Two friends are searching for their long lost companion', 170, 'Comedy', 'Hindi', '2009-12-25'),
+    ('Avengers: Endgame', 'The Avengers assemble once more to reverse Thanos snap', 181, 'Action', 'English', '2019-04-26');
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: movie-db
+  namespace: movie
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: movie-db
+  template:
+    metadata:
+      labels:
+        app: movie-db
+    spec:
+      containers:
+        - name: movie-db
+          image: mysql:8.0
+          env:
+            - name: MYSQL_DATABASE
+              value: movie_db
+            - name: MYSQL_USER
+              value: movieuser
+            - name: MYSQL_PASSWORD
+              value: moviepass
+            - name: MYSQL_ROOT_PASSWORD
+              value: rootpass
+          ports:
+            - containerPort: 3306
+          volumeMounts:
+            - name: movie-db-data
+              mountPath: /var/lib/mysql
+            - name: init-db
+              mountPath: /docker-entrypoint-initdb.d/
+          livenessProbe:
+            exec:
+              command: ["mysqladmin", "ping", "-h", "localhost"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["mysqladmin", "ping", "-h", "localhost"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+      volumes:
+        - name: movie-db-data
+          persistentVolumeClaim:
+            claimName: movie-db-pvc
+        - name: init-db
+          configMap:
+            name: movie-init-scripts
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: movie-db
+  namespace: movie
+spec:
+  selector:
+    app: movie-db
+  ports:
+    - port: 3306
+      targetPort: 3306
+      protocol: TCP
+---
+# ========================
+# Movie Service (Spring Boot backend)
+# ========================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: movie-service
+  namespace: movie
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: movie-service
+  template:
+    metadata:
+      labels:
+        app: movie-service
+    spec:
+      initContainers:
+        - name: wait-for-mysql
+          image: mysql:8.0
+          command:
+            ["sh", "-c", "until mysql -h movie-db -u movieuser -pmoviepass -e 'SELECT 1' >/dev/null 2>&1; do echo waiting for movie-db; sleep 5; done"]
+      containers:
+        - name: movie-service
+          image: 543816070942.dkr.ecr.us-east-1.amazonaws.com/movieapp-backend:29
+          ports:
+            - containerPort: 8081
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: docker
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:mysql://movie-db:3306/movie_db
+            - name: SPRING_DATASOURCE_USERNAME
+              value: movieuser
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: moviepass
+            - name: ZIPKIN_ENDPOINT
+              value: http://zipkin:9411/api/v2/spans
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: movie-service
+  namespace: movie
+spec:
+  selector:
+    app: movie-service
+  ports:
+    - port: 8081
+      targetPort: 8081
+  type: ClusterIP

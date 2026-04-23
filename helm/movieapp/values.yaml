@@ -1,0 +1,90 @@
+# Global settings
+namespace:
+  name: movie
+  create: true
+
+# StorageClass configuration
+storageClass:
+  name: gp2-immediate
+  provisioner: kubernetes.io/aws-ebs
+  parameters:
+    type: gp2
+  volumeBindingMode: Immediate
+  reclaimPolicy: Delete
+
+
+mysql:
+  enabled: false  # or true if you want to enable it
+
+# RDS Secret configuration
+rds:
+  enabled: false  # Set to true if you want to create RDS secret
+  secretName: rds-secret
+  secret:
+    username: movieuser
+    password: moviepass
+
+# Movie Service (Spring Boot) configuration
+movieService:
+  enabled: true
+  name: movie-service
+  image:
+    repository: 543816070942.dkr.ecr.us-east-1.amazonaws.com/movieapp-backend
+    tag: "12"
+  replicas: 1
+  port: 8081
+  env:
+    springProfilesActive: docker
+    springDatasourceUrl: jdbc:mysql://moviedb.clbdj44v7c4x.us-east-1.rds.amazonaws.com:3306/moviedb
+    springDatasourceUsername: movieuser
+    springDatasourcePassword: moviepass
+    zipkinEndpoint: http://zipkin:9411/api/v2/spans
+  service:
+    type: ClusterIP
+    port: 8081
+    targetPort: 8081
+
+# Ingress configuration
+ingress:
+  enabled: true
+  name: movieapp-ingress
+  host: bookmyseat.dockeroncloud.com
+  #path: /
+  pathType: Prefix
+  ingressClassName: alb
+  #className: alb  # Change this to match your ingress controller (nginx, traefik, etc.)
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip  # Direct to pods (efficient on EKS)
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/success-codes: "200,204" #made changes
+    alb.ingress.kubernetes.io/ssl-redirect: "443"  # Redirect HTTP -> HTTPS
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:543816070942:certificate/3aef524d-818c-48e8-bc63-7641b73b95de  # Your ACM cert ARN
+    alb.ingress.kubernetes.io/healthcheck-path: /actuator/health  # Adjust if your Spring Boot apps have a health endpoint (common: /actuator/health)
+  paths:
+    - path: /api/v1/movies
+      pathType: Prefix
+      serviceName: movie-service
+      servicePort: 8081  
+
+    - path: /api/v1/reviews
+      pathType: Prefix
+      serviceName: review-service
+      servicePort: 8082  
+    
+    # Optional: WAF, security groups, etc.
+    # Add any annotations you need for your ingress controller
+    # For nginx ingress controller, you might want:
+    # nginx.ingress.kubernetes.io/rewrite-target: /
+    #nginx.ingress.kubernetes.io/rewrite-target: /api/$2
+    #nginx.ingress.kubernetes.io/use-regex: "true"
+  tls:
+    enabled: true
+    # Uncomment and configure if you want TLS/HTTPS
+    hosts: bookmyseat.dockeroncloud.com
+
+# ConfigMap for database initialization scripts
+initScripts:
+  enabled: true
+  name: movie-init-scripts
+

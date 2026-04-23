@@ -1,0 +1,52 @@
+services:
+  movie-db:
+    image: mysql:8.0
+    container_name: movie-db
+    environment:
+      MYSQL_DATABASE: movie_db
+      MYSQL_USER: movieuser
+      MYSQL_PASSWORD: moviepass
+      MYSQL_ROOT_PASSWORD: rootpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - movie-db-data:/var/lib/mysql
+      - ./src/main/resources/db/migration:/docker-entrypoint-initdb.d
+    networks:
+      - bookmyseat-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  movie-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: movie-service
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:mysql://movie-db:3306/movie_db
+      SPRING_DATASOURCE_USERNAME: movieuser
+      SPRING_DATASOURCE_PASSWORD: moviepass
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+    depends_on:
+      movie-db:
+        condition: service_healthy
+    networks:
+      - bookmyseat-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  movie-db-data:
+
+networks:
+   bookmyseat-network:
+    external: true

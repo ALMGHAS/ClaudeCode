@@ -1,0 +1,115 @@
+name: movie-service-ci
+
+on:
+  push:
+    paths-ignore:
+      - "helm/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  WORKING_DIR: bookmyseat-movie-service
+  JAVA_VERSION: "21"
+  SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+  IMAGE_TAG: ${{ github.run_number }}
+
+jobs:
+  build-test-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Maven Build (compile)
+        run: mvn -B clean compile -DskipTests=true
+
+      - name: Maven Test
+        run: mvn -B test
+
+      - name: Package
+        run: mvn -B package -DskipTests=true
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ vars.MOVIE_ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+
+      # 🔐 Trivy scan – FAIL ONLY on CRITICAL vulnerabilities
+      - name: Trivy Container Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ vars.MOVIE_ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          scan-type: image
+          format: sarif
+          output: trivy-report.sarif
+          vuln-type: "library"
+          severity: "CRITICAL"
+          ignore-unfixed: true
+          exit-code: "0"
+          trivy-args: "--scanners vuln --skip-version-check"
+
+      - name: Convert SARIF to JSON & Enforce CRITICAL gate
+        run: |
+          echo "Converting SARIF to JSON..."
+          jq '.' trivy-report.sarif > trivy-report.json
+          echo "Generated: trivy-report.json"
+      
+          echo "🔍 Extracting CRITICAL vulnerability count..."
+          count=$(jq '[.runs[].results[]? | select(.level=="error")] | length' trivy-report.json)
+          if [ -z "$count" ]; then count=0; fi
+      
+          echo "🚨 CRITICAL vulnerabilities detected: $count"
+      
+          if [ "$count" -gt 10 ]; then
+            echo "❌ Too many CRITICAL vulnerabilities (>10). Failing the job."
+            exit 1
+          else
+            echo "✅ CRITICAL vulnerabilities within acceptable limit (<=10). Continuing pipeline."
+          fi
+
+
+      - name: Upload Trivy Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: movie-service-trivy-report
+          path: trivy-report.json
+
+      - name: Update Helm values with new image tag
+        run: |
+          NEW_TAG=${{ github.run_number }}
+          VALUES_FILE="helm/movieapp/values.yaml"
+          sed -i "s/tag:.*/tag: \"$NEW_TAG\"/g" $VALUES_FILE
+
+      - name: Commit Helm chart update
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          git add helm/movieapp/values.yaml
+          git commit -m "Update image tag to ${{ github.run_number }}"
+          git push

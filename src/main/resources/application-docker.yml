@@ -1,0 +1,19 @@
+# Docker profile - for running in Docker containers
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://movie-db:3306/movie_db}
+    username: ${SPRING_DATASOURCE_USERNAME:movieuser}
+    password: ${SPRING_DATASOURCE_PASSWORD:moviepass}
+  jpa:
+    show-sql: false
+
+logging:
+  level:
+    com.bookmyseat.movieservice: INFO
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n"
+
+management:
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_ENDPOINT:http://zipkin:9411/api/v2/spans}

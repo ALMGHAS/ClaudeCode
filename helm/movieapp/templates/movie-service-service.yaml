@@ -1,0 +1,15 @@
+{{- if .Values.movieService.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.movieService.name }}
+  namespace: {{ .Values.namespace.name }}
+spec:
+  selector:
+    app: {{ .Values.movieService.name }}
+  ports:
+    - port: {{ .Values.movieService.service.port }}
+      targetPort: {{ .Values.movieService.service.targetPort }}
+  type: {{ .Values.movieService.service.type }}
+{{- end }}
+
