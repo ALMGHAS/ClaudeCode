@@ -30,7 +30,7 @@ movieService:
   name: movie-service
   image:
     repository: 543816070942.dkr.ecr.us-east-1.amazonaws.com/movieapp-backend
-    tag: "5"
+    tag: "7"
   replicas: 1
   port: 8081
   env:
