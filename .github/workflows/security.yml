@@ -3,8 +3,6 @@ name: security
 
 on:
   push:
-    branches:
-      - main
     paths-ignore:
       - "helm/**"
       - "**/*.md"
