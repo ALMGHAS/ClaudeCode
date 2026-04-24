@@ -1,6 +1,16 @@
 name: security
 
 on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "helm/**"
+      - "**/*.md"
+  pull_request:
+    paths-ignore:
+      - "helm/**"
+      - "**/*.md"
   workflow_dispatch: 
   
   #schedule:
