@@ -11,9 +11,9 @@ on:
     paths-ignore:
       - "helm/**"
       - "**/*.md"
-  schedule:
+  #schedule:
     # Weekly scan on Monday 06:00 UTC to catch newly disclosed CVEs
-    - cron: "0 6 * * 1"
+   # - cron: "0 6 * * 1"
   workflow_dispatch:
 
 permissions:
