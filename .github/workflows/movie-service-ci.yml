@@ -2,6 +2,9 @@ name: movie-service-ci
 
 on:
   push:
+  branches:
+      - main
+  
     paths-ignore:
       - "helm/**"
   pull_request:
